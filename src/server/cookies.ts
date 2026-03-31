@@ -7,15 +7,20 @@ import {
 import { hkdf } from "@panva/hkdf";
 import * as jose from "jose";
 
+import { SecretOption } from "./session/abstract-session-store.js";
+
 const ENC = "A256GCM";
 const ALG = "dir";
 const DIGEST = "sha256";
 const BYTE_LENGTH = 32;
 const ENCRYPTION_INFO = "JWE CEK";
 
+const createEncryptionKey = (secret: string) =>
+  hkdf(DIGEST, secret, "", ENCRYPTION_INFO, BYTE_LENGTH);
+
 export async function encrypt(
   payload: jose.JWTPayload,
-  secret: string,
+  secret: SecretOption,
   expiration: number,
   additionalHeaders?: {
     iat: number;
@@ -23,41 +28,56 @@ export async function encrypt(
     exp: number;
   }
 ) {
-  const encryptionSecret = await hkdf(
-    DIGEST,
-    secret,
-    "",
-    ENCRYPTION_INFO,
-    BYTE_LENGTH
-  );
+  const secretInput =
+    typeof secret === "string"
+      ? secret
+      : secret.allowedSecrets[secret.currentSecretKid]?.secret;
+  const kid = typeof secret === "string" ? undefined : secret.currentSecretKid;
+  const encryptionKey = await createEncryptionKey(secretInput);
 
   const encryptedCookie = await new jose.EncryptJWT(payload)
-    .setProtectedHeader({ enc: ENC, alg: ALG, ...additionalHeaders })
+    .setProtectedHeader({
+      enc: ENC,
+      alg: ALG,
+      ...additionalHeaders,
+      ...(kid ? { kid } : {})
+    })
     .setExpirationTime(expiration)
-    .encrypt(encryptionSecret);
+    .encrypt(encryptionKey);
 
   return encryptedCookie.toString();
 }
 
 export async function decrypt<T>(
   cookieValue: string,
-  secret: string,
+  secret: SecretOption,
   options?: jose.JWTDecryptOptions,
   throwOnJWEErrors?: boolean
 ) {
   try {
-    const encryptionSecret = await hkdf(
-      DIGEST,
-      secret,
-      "",
-      ENCRYPTION_INFO,
-      BYTE_LENGTH
+    const cookie = await jose.jwtDecrypt<T>(
+      cookieValue,
+      (protectedHeader) => {
+        const kid = protectedHeader.kid;
+        if (typeof secret === "string") {
+          return createEncryptionKey(secret);
+        } else if (!kid) {
+          // If the current encrypted value has no kid, we fallback to using the current secret. This allows for a smooth rotation where the new encrypted cookies have a kid, but we can still read old cookies without a kid until they naturally expire.
+          return createEncryptionKey(
+            secret.allowedSecrets[secret.currentSecretKid].secret
+          );
+        }
+        const foundSecret = secret.allowedSecrets?.[kid];
+        if (!foundSecret) {
+          throw new Error(`Unable to find encryption key for kid: ${kid}`);
+        }
+        return createEncryptionKey(foundSecret.secret);
+      },
+      {
+        ...options,
+        ...{ clockTolerance: 15 }
+      }
     );
-
-    const cookie = await jose.jwtDecrypt<T>(cookieValue, encryptionSecret, {
-      ...options,
-      ...{ clockTolerance: 15 }
-    });
 
     return cookie;
   } catch (e: any) {
@@ -80,7 +100,7 @@ export async function decrypt<T>(
  * Derive a signing key from a given secret.
  * This method is used solely to migrate signed, legacy cookies to the new encrypted cookie format (v4+).
  */
-const signingSecret = (secret: string): Promise<Uint8Array> =>
+const createSigningKey = (secret: string): Promise<Uint8Array> =>
   hkdf("sha256", secret, "", "JWS Cookie Signing", BYTE_LENGTH);
 
 /**
@@ -90,7 +110,7 @@ const signingSecret = (secret: string): Promise<Uint8Array> =>
 export async function verifySigned(
   k: string,
   v: string,
-  secret: string
+  secret: SecretOption
 ): Promise<string | undefined> {
   if (!v) {
     return undefined;
@@ -103,12 +123,29 @@ export async function verifySigned(
     payload: `${k}=${value}`,
     signature
   };
-  const key = await signingSecret(secret);
-
   try {
-    await jose.flattenedVerify(flattenedJWS, key, {
-      algorithms: ["HS256"]
-    });
+    await jose.flattenedVerify(
+      flattenedJWS,
+      (protectedHeader?: jose.JWSHeaderParameters) => {
+        const kid = protectedHeader?.kid;
+        if (typeof secret === "string") {
+          return createSigningKey(secret);
+        } else if (!kid) {
+          // Fallback to current secret if no kid is present
+          return createSigningKey(
+            secret.allowedSecrets[secret.currentSecretKid].secret
+          );
+        }
+        const foundSecret = secret.allowedSecrets?.[kid];
+        if (!foundSecret) {
+          throw new Error(`Unable to find signing key for kid: ${kid}`);
+        }
+        return createSigningKey(foundSecret.secret);
+      },
+      {
+        algorithms: ["HS256"]
+      }
+    );
     return value;
   } catch (e) {
     return undefined;
@@ -122,14 +159,25 @@ export async function verifySigned(
 export async function sign(
   name: string,
   value: string,
-  secret: string
+  secret: SecretOption
 ): Promise<string> {
-  const key = await signingSecret(secret);
+  const signingKey =
+    typeof secret === "string"
+      ? await createSigningKey(secret)
+      : await createSigningKey(
+          secret.allowedSecrets[secret.currentSecretKid].secret
+        );
+  const kid = typeof secret === "string" ? undefined : secret.currentSecretKid;
   const { signature } = await new jose.FlattenedSign(
     new TextEncoder().encode(`${name}=${value}`)
   )
-    .setProtectedHeader({ alg: "HS256", b64: false, crit: ["b64"] })
-    .sign(key);
+    .setProtectedHeader({
+      alg: "HS256",
+      b64: false,
+      crit: ["b64"],
+      ...(kid ? { kid } : {})
+    })
+    .sign(signingKey);
   return `${value}.${signature}`;
 }
 

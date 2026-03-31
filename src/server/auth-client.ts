@@ -133,7 +133,10 @@ import {
   FetcherHooks,
   FetcherMinimalConfig
 } from "./fetcher.js";
-import { AbstractSessionStore } from "./session/abstract-session-store.js";
+import {
+  AbstractSessionStore,
+  SecretOption
+} from "./session/abstract-session-store.js";
 import { TransactionState, TransactionStore } from "./transaction-store.js";
 import { filterDefaultIdTokenClaims } from "./user.js";
 
@@ -235,7 +238,7 @@ export interface AuthClientOptions {
   authorizationParameters?: AuthorizationParameters;
   pushedAuthorizationRequests?: boolean;
 
-  secret: string;
+  secret: SecretOption;
   /**
    * Normalized appBaseUrl. When omitted, the SDK infers the base URL from the request.
    * If you construct AuthClient directly, normalize the value first.

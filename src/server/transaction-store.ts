@@ -2,6 +2,7 @@ import type * as jose from "jose";
 
 import { RESPONSE_TYPES } from "../types/index.js";
 import * as cookies from "./cookies.js";
+import { SecretOption } from "./session/abstract-session-store.js";
 
 const TRANSACTION_COOKIE_PREFIX = "__txn_";
 
@@ -63,7 +64,7 @@ export interface TransactionCookieOptions {
 }
 
 export interface TransactionStoreOptions {
-  secret: string;
+  secret: SecretOption;
   cookieOptions?: TransactionCookieOptions;
   /**
    * Controls whether multiple parallel login transactions are allowed.
@@ -81,7 +82,7 @@ export interface TransactionStoreOptions {
  * the transaction state.
  */
 export class TransactionStore {
-  private readonly secret: string;
+  private readonly secret: SecretOption;
   private readonly transactionCookiePrefix: string;
   private readonly cookieOptions: cookies.CookieOptions;
   private readonly enableParallelTransactions: boolean;

@@ -59,6 +59,7 @@ import { ServerMfaClient } from "./mfa/server-mfa-client.js";
 import { toNextRequest, toNextResponse } from "./next-compat.js";
 import {
   AbstractSessionStore,
+  SecretOption,
   SessionConfiguration,
   SessionCookieOptions
 } from "./session/abstract-session-store.js";
@@ -129,7 +130,7 @@ export interface Auth0ClientOptions {
    *
    * If it's not specified, it will be loaded from the `AUTH0_SECRET` environment variable.
    */
-  secret?: string;
+  secret?: SecretOption;
   /**
    * The path to redirect the user to after successfully authenticating. Defaults to `/`.
    */

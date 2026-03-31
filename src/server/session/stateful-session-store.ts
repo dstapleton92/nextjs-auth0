@@ -2,6 +2,7 @@ import { SessionData, SessionDataStore } from "../../types/index.js";
 import * as cookies from "../cookies.js";
 import {
   AbstractSessionStore,
+  SecretOption,
   SessionCookieOptions
 } from "./abstract-session-store.js";
 import {
@@ -16,7 +17,7 @@ interface SessionCookieValue {
 }
 
 interface StatefulSessionStoreOptions {
-  secret: string;
+  secret: SecretOption;
 
   rolling?: boolean; // defaults to true
   absoluteDuration?: number; // defaults to 3 days

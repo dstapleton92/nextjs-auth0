@@ -14,6 +14,7 @@ import {
   SdkError
 } from "../errors/index.js";
 import { decrypt, encrypt } from "../server/cookies.js";
+import { SecretOption } from "../server/session/abstract-session-store.js";
 import type { MfaContext } from "../types/index.js";
 
 /**
@@ -34,7 +35,7 @@ export async function encryptMfaToken(
   audience: string,
   scope: string,
   mfaRequirements: MfaRequirements | undefined,
-  secret: string,
+  secret: SecretOption,
   ttlSeconds: number
 ): Promise<string> {
   const context: MfaContext = {
@@ -62,7 +63,7 @@ export async function encryptMfaToken(
  */
 export async function decryptMfaToken(
   encryptedToken: string,
-  secret: string
+  secret: SecretOption
 ): Promise<MfaContext> {
   try {
     const result = await decrypt<MfaContext>(

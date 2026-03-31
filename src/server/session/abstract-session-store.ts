@@ -74,8 +74,19 @@ export interface SessionConfiguration {
   cookie?: SessionCookieOptions;
 }
 
-export interface SessionStoreOptions extends SessionConfiguration {
+export interface SessionSecret {
   secret: string;
+  kid: string;
+}
+export interface SessionSecretConfig {
+  currentSecretKid: string;
+  allowedSecrets: Record<string, SessionSecret>;
+}
+
+export type SecretOption = string | SessionSecretConfig;
+
+export interface SessionStoreOptions extends SessionConfiguration {
+  secret: SecretOption;
   store?: SessionDataStore;
 
   cookieOptions?: SessionCookieOptions;
@@ -84,7 +95,7 @@ export interface SessionStoreOptions extends SessionConfiguration {
 const SESSION_COOKIE_NAME = "__session";
 
 export abstract class AbstractSessionStore {
-  public secret: string;
+  public secret: SecretOption;
   public sessionCookieName: string;
 
   private rolling: boolean;
