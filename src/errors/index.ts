@@ -41,3 +41,5 @@ export {
   type MfaApiErrorResponse,
   type MfaRequirements
 } from "./mfa-errors.js";
+
+export { MissingKeyError } from "./encryption-errors.js";

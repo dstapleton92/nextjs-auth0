@@ -1444,16 +1444,16 @@ export class Auth0Client {
         );
       }
 
-      if (hasValidStructure && allowedKeys[currentKid] === currentKid) {
-        // This is critical; the kid can be read by anyone, so it must not be the secret value itself
-        throw new Error(
-          'You cannot use the same value for "currentKid" and a key. The kid is meant to be an identifier, not the secret itself.'
-        );
-      }
-
       if (secretWarnings.length > 0) {
         console.error(
           `WARNING: Invalid secret configuration:\n  - ${secretWarnings.join("\n  - ")}`
+        );
+      }
+
+      if (hasValidStructure && allowedKeys[currentKid] === currentKid) {
+        // This is critical; the kid can be read by anyone, so it must not be the secret value itself
+        throw new InvalidConfigurationError(
+          'You cannot use the same value for "currentKid" and a key. The kid is a publicly readable identifier, not the secret itself.'
         );
       }
     }

@@ -7,6 +7,7 @@ import {
 import { hkdf } from "@panva/hkdf";
 import * as jose from "jose";
 
+import { MissingKeyError } from "../errors/encryption-errors.js";
 import { SecretOption } from "./session/abstract-session-store.js";
 
 const ENC = "A256GCM";
@@ -14,6 +15,25 @@ const ALG = "dir";
 const DIGEST = "sha256";
 const BYTE_LENGTH = 32;
 const ENCRYPTION_INFO = "JWE CEK";
+
+const getKeyFunc =
+  (secret: SecretOption, createKey: (secret: string) => Promise<Uint8Array>) =>
+  (protectedHeader?: jose.JWEHeaderParameters | jose.JWSHeaderParameters) => {
+    const kid = protectedHeader?.kid;
+    if (typeof secret === "string") {
+      return createKey(secret);
+    } else if (!kid) {
+      // If the value being decrypted/verified has no kid, we fallback to using the current secret. This allows for a smooth rotation where the new encrypted cookies have a kid, but we can still read old cookies without a kid until they naturally expire.
+      return createKey(secret.allowedKeys[secret.currentKid]);
+    }
+    const foundSecret = secret.allowedKeys?.[kid];
+    if (!foundSecret) {
+      throw new MissingKeyError(
+        `Unable to find encryption key for kid: ${kid}`
+      );
+    }
+    return createKey(foundSecret);
+  };
 
 const createEncryptionKey = (secret: string) =>
   hkdf(DIGEST, secret, "", ENCRYPTION_INFO, BYTE_LENGTH);
@@ -55,20 +75,7 @@ export async function decrypt<T>(
   try {
     const cookie = await jose.jwtDecrypt<T>(
       cookieValue,
-      (protectedHeader) => {
-        const kid = protectedHeader.kid;
-        if (typeof secret === "string") {
-          return createEncryptionKey(secret);
-        } else if (!kid) {
-          // If the current encrypted value has no kid, we fallback to using the current secret. This allows for a smooth rotation where the new encrypted cookies have a kid, but we can still read old cookies without a kid until they naturally expire.
-          return createEncryptionKey(secret.allowedKeys[secret.currentKid]);
-        }
-        const foundSecret = secret.allowedKeys?.[kid];
-        if (!foundSecret) {
-          throw new Error(`Unable to find encryption key for kid: ${kid}`);
-        }
-        return createEncryptionKey(foundSecret);
-      },
+      getKeyFunc(secret, createEncryptionKey),
       {
         ...options,
         ...{ clockTolerance: 15 }
@@ -84,7 +91,8 @@ export async function decrypt<T>(
     // When the JWE can not be decrypted or has expired, return null to indicate an invalid cookie and treat it as non-existent.
     if (
       e.code === "ERR_JWE_DECRYPTION_FAILED" ||
-      e.code === "ERR_JWT_EXPIRED"
+      e.code === "ERR_JWT_EXPIRED" ||
+      e instanceof MissingKeyError
     ) {
       return null;
     }
@@ -122,20 +130,7 @@ export async function verifySigned(
   try {
     await jose.flattenedVerify(
       flattenedJWS,
-      (protectedHeader?: jose.JWSHeaderParameters) => {
-        const kid = protectedHeader?.kid;
-        if (typeof secret === "string") {
-          return createSigningKey(secret);
-        } else if (!kid) {
-          // Fallback to current secret if no kid is present
-          return createSigningKey(secret.allowedKeys[secret.currentKid]);
-        }
-        const foundSecret = secret.allowedKeys?.[kid];
-        if (!foundSecret) {
-          throw new Error(`Unable to find signing key for kid: ${kid}`);
-        }
-        return createSigningKey(foundSecret);
-      },
+      getKeyFunc(secret, createSigningKey),
       {
         algorithms: ["HS256"]
       }
