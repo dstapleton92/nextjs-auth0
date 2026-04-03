@@ -74,9 +74,72 @@ export interface SessionConfiguration {
   cookie?: SessionCookieOptions;
 }
 
+/**
+ * A session secret configuration which allows for key rotation by specifying multiple secrets and indicating which one is currently in use via the `currentKid` property.
+ * Example:
+ * ```js
+ * secret: {
+ *   currentKid: "K-1775256242505",
+ *   allowedKeys: {
+ *     "K-1775256222544": "secretValue1",
+ *     "K-1775256242505": "secretValue2"
+ *   }
+ * }
+ * ```
+ * In this example, newly encrypted cookies will have the `kid` of "K-1775256242505" and use the secret "secretValue2" for encryption, but cookies with the `kid` of "K-1775256222544" can still be decrypted.
+ * After an older-keyed session is decrypted, it will be re-encrypted using the latest key defined by currentKid.
+ *
+ * When a sufficient number of your users have moved to the new secret, you should remove the old secret from the allowedKeys object.
+ * Example:
+ * ```js
+ * secret: {
+ *   currentKid: "K-1775256242505",
+ *   allowedKeys: {
+ *     "K-1775256242505": "secretValue2"
+ *   }
+ * }
+ * ```
+ * With the old secret removed, encrypted sessions using the old secret will no longer be decryptable, and users with those sessions will need to log in again.
+ * Knowing when to remove your old key is an individual decision based on risk tolerance, user base, and circumstances. For example, a compromised key may require more urgent action than a simple routine key rotation.
+ */
 export interface SessionSecretConfig {
+  /**
+   * The key identifier (`kid`) of the currently used secret. This value is used to indicate which secret in the `allowedKeys` object is currently being used to encrypt new cookies.
+   * A `kid` is a public identifier for a secret and will be set into the encrypted session cookie, where it is readable by anyone. A `kid` should be an opaque identifier that helps identify which key was used.
+   * One popular approach is to use a unix timestamp as the `kid`, which allows for easy identification of when a secret was put into service, but any unique string can be used.
+   */
+
   currentKid: string;
+
+  /**
+   * The key identifier (`kid`) of the fallback secret. This value is used when decrypting/verifying cookies that do not have a `kid`.
+   * This allows for a smooth rotation where the new encrypted cookies have a `kid`, but we can still read old cookies without a `kid` until they naturally expire.
+   * This value is optional, and if not provided, the `currentKid` will be used as the fallback `kid`. If provided, it must match a key in the `allowedKeys` object.
+   *
+   * Typically this doesn't need to be provided, since using the `currentKid` as the fallback is usually sufficient. However, if you are migrating to this object structure for the first time
+   * and simulateously rotating your secret, you will need to use this property.
+   * Example:
+   * ```js
+   * secret: {
+   *   currentKid: "K-SomeIdentifierForNewKey",
+   *   fallbackKid: "K-SomeIdentifierForOldKey",
+   *   allowedKeys: {
+   *     "K-SomeIdentifierForOldKey": "OldSecretValue",
+   *     "K-SomeIdentifierForNewKey": "NewSecretValue"
+   *   }
+   * }
+   * ```
+   * In this scenario, you MAKE UP a `kid` for the old key, as the SDK was not setting one before.
+   * This newly made-up identifier is what you set as the `fallbackKid`, and put your old secret value in the `allowedKeys` object at that same key name. When the SDK encounters an encrypted session without a `kid`,
+   * it will use the key identified by the `fallbackKid`.
+   */
   fallbackKid?: string;
+
+  /**
+   * A record of allowed keys for encryption/decryption. The keys are stored in an object where the key is the `kid` and the value is the secret value used for encryption/decryption.
+   * When decrypting/verifying a cookie, the `kid` from the cookie will be used to look up the corresponding secret in this object.
+   */
+
   allowedKeys: Record<string, string>;
 }
 
