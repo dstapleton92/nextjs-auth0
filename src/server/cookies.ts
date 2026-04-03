@@ -93,6 +93,7 @@ export async function decrypt<T>(
     if (
       e.code === "ERR_JWE_DECRYPTION_FAILED" ||
       e.code === "ERR_JWT_EXPIRED" ||
+      e.code === "ERR_JWE_INVALID" ||
       e instanceof MissingKeyError
     ) {
       return null;
