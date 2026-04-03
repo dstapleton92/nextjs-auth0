@@ -145,7 +145,7 @@ describe("encrypt/decrypt", async () => {
       expect(decrypted).toBeNull();
     });
 
-    it("should decrypt string-encrypted payloads (no kid) by falling back to current key", async () => {
+    it("should decrypt string-encrypted payloads (no kid) by falling back to currentKid when no fallbackKid is specified", async () => {
       // Encrypt with simple string secret (no kid in header)
       const payload = { key: "value" };
       const maxAge = 60 * 60;
@@ -156,13 +156,66 @@ describe("encrypt/decrypt", async () => {
       const header = jose.decodeProtectedHeader(encrypted);
       expect(header.kid).toBeUndefined();
 
-      // Decrypt with object secret should fall back to current key
+      // Decrypt with object secret should fall back to currentKid
       const decrypted = (await decrypt(
         encrypted,
         objectSecret
       )) as jose.JWTDecryptResult;
 
       expect(decrypted!.payload).toEqual(expect.objectContaining(payload));
+    });
+
+    it("should decrypt string-encrypted payloads (no kid) by falling back to fallbackKid when specified", async () => {
+      // Encrypt with old secret (no kid in header)
+      const payload = { key: "value" };
+      const maxAge = 60 * 60;
+      const expiration = Math.floor(Date.now() / 1000 + maxAge);
+      const encrypted = await encrypt(payload, oldSecret, expiration);
+
+      // Verify the encrypted token has no kid
+      const header = jose.decodeProtectedHeader(encrypted);
+      expect(header.kid).toBeUndefined();
+
+      // Object secret with fallbackKid pointing to the old key
+      const objectSecretWithFallback: SessionSecretConfig = {
+        currentKid: "key-2",
+        fallbackKid: "key-1",
+        allowedKeys: {
+          "key-1": oldSecret,
+          "key-2": currentSecret
+        }
+      };
+
+      // Decrypt should use fallbackKid (key-1) instead of currentKid (key-2)
+      const decrypted = (await decrypt(
+        encrypted,
+        objectSecretWithFallback
+      )) as jose.JWTDecryptResult;
+
+      expect(decrypted!.payload).toEqual(expect.objectContaining(payload));
+    });
+
+    it("should fail to decrypt string-encrypted payloads (no kid) when fallbackKid points to wrong key", async () => {
+      // Encrypt with current secret (no kid in header)
+      const payload = { key: "value" };
+      const maxAge = 60 * 60;
+      const expiration = Math.floor(Date.now() / 1000 + maxAge);
+      const encrypted = await encrypt(payload, currentSecret, expiration);
+
+      // Object secret with fallbackKid pointing to a different key than what was used to encrypt
+      const objectSecretWithWrongFallback: SessionSecretConfig = {
+        currentKid: "key-2",
+        fallbackKid: "key-1",
+        allowedKeys: {
+          "key-1": oldSecret,
+          "key-2": currentSecret
+        }
+      };
+
+      // Decrypt should try fallbackKid (key-1) which is wrong, so it should fail
+      const decrypted = await decrypt(encrypted, objectSecretWithWrongFallback);
+
+      expect(decrypted).toBeNull();
     });
 
     it("should fail to decrypt if all keys are wrong", async () => {
@@ -247,9 +300,11 @@ describe("sign/verifySigned", async () => {
   });
 
   describe("with object secret", async () => {
-    // Note: sign/verifySigned are legacy migration functions that use the current key only.
+    // Note: sign/verifySigned are legacy migration functions.
     // Key rotation via kid headers is not supported because the protected header is not preserved.
+    // When verifying, fallbackKid (if specified) or currentKid is used.
     const currentSecret = await generateSecret(32);
+    const oldSecret = await generateSecret(32);
     const objectSecret: SessionSecretConfig = {
       currentKid: "key-1",
       allowedKeys: {
@@ -257,16 +312,66 @@ describe("sign/verifySigned", async () => {
       }
     };
 
-    it("should verify string-signed values using current key from object secret", async () => {
+    it("should verify string-signed values using currentKid when no fallbackKid is specified", async () => {
       const name = "testCookie";
       const value = "testValue";
       // Sign with simple string secret
       const signed = await sign(name, value, currentSecret);
 
-      // Verify with object secret should use current key
+      // Verify with object secret should use currentKid
       const verified = await verifySigned(name, signed, objectSecret);
 
       expect(verified).toBe(value);
+    });
+
+    it("should verify string-signed values using fallbackKid when specified", async () => {
+      const name = "testCookie";
+      const value = "testValue";
+      // Sign with old secret
+      const signed = await sign(name, value, oldSecret);
+
+      const objectSecretWithFallback: SessionSecretConfig = {
+        currentKid: "key-2",
+        fallbackKid: "key-1",
+        allowedKeys: {
+          "key-1": oldSecret,
+          "key-2": currentSecret
+        }
+      };
+
+      // Verify with object secret should use fallbackKid (key-1)
+      const verified = await verifySigned(
+        name,
+        signed,
+        objectSecretWithFallback
+      );
+
+      expect(verified).toBe(value);
+    });
+
+    it("should fail to verify string-signed values when fallbackKid points to wrong key", async () => {
+      const name = "testCookie";
+      const value = "testValue";
+      // Sign with current secret
+      const signed = await sign(name, value, currentSecret);
+
+      const objectSecretWithWrongFallback: SessionSecretConfig = {
+        currentKid: "key-2",
+        fallbackKid: "key-1",
+        allowedKeys: {
+          "key-1": oldSecret,
+          "key-2": currentSecret
+        }
+      };
+
+      // Verify should try fallbackKid (key-1) which is wrong, so it should fail
+      const verified = await verifySigned(
+        name,
+        signed,
+        objectSecretWithWrongFallback
+      );
+
+      expect(verified).toBeUndefined();
     });
   });
 });

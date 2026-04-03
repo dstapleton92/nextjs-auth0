@@ -76,6 +76,7 @@ export interface SessionConfiguration {
 
 export interface SessionSecretConfig {
   currentKid: string;
+  fallbackKid?: string;
   allowedKeys: Record<string, string>;
 }
 

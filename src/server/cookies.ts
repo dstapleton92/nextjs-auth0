@@ -23,8 +23,9 @@ const getKeyFunc =
     if (typeof secret === "string") {
       return createKey(secret);
     } else if (!kid) {
-      // If the value being decrypted/verified has no kid, we fallback to using the current secret. This allows for a smooth rotation where the new encrypted cookies have a kid, but we can still read old cookies without a kid until they naturally expire.
-      return createKey(secret.allowedKeys[secret.currentKid]);
+      // If the value being decrypted/verified has no kid, we fallback to using the fallbackKid or currentKid. This allows for a smooth rotation where the new encrypted cookies have a kid, but we can still read old cookies without a kid until they naturally expire.
+      const fallbackKid = secret.fallbackKid || secret.currentKid;
+      return createKey(secret.allowedKeys[fallbackKid]);
     }
     const foundSecret = secret.allowedKeys?.[kid];
     if (!foundSecret) {
