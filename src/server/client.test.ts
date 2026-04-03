@@ -156,6 +156,147 @@ describe("Auth0Client", () => {
         "tokenRefreshBuffer must be a non-negative number of seconds."
       );
     });
+
+    describe("secret configuration", () => {
+      it("should accept string secret", () => {
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: "string-secret-at-least-32-chars-long"
+        };
+
+        const client = new Auth0Client(options);
+        expect(client).toBeInstanceOf(Auth0Client);
+      });
+
+      it("should accept object secret with currentKid and allowedKeys", () => {
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: {
+            currentKid: "key-1",
+            allowedKeys: {
+              "key-1": "secret-value-at-least-32-chars-long"
+            }
+          }
+        };
+
+        const client = new Auth0Client(options);
+        expect(client).toBeInstanceOf(Auth0Client);
+      });
+
+      it("should accept object secret with multiple keys for rotation", () => {
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: {
+            currentKid: "key-2",
+            allowedKeys: {
+              "key-1": "old-secret-value-at-least-32-chars",
+              "key-2": "new-secret-value-at-least-32-chars"
+            }
+          }
+        };
+
+        const client = new Auth0Client(options);
+        expect(client).toBeInstanceOf(Auth0Client);
+      });
+
+      it("should log warning when object secret is missing currentKid", () => {
+        const consoleSpy = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: {
+            currentKid: "",
+            allowedKeys: {
+              "key-1": "secret-value-at-least-32-chars-long"
+            }
+          }
+        };
+
+        new Auth0Client(options);
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Invalid secret configuration")
+        );
+        consoleSpy.mockRestore();
+      });
+
+      it("should log warning when object secret has empty allowedKeys", () => {
+        const consoleSpy = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: {
+            currentKid: "key-1",
+            allowedKeys: {}
+          }
+        };
+
+        new Auth0Client(options);
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Invalid secret configuration")
+        );
+        consoleSpy.mockRestore();
+      });
+
+      it("should log warning when currentKid does not match any key in allowedKeys", () => {
+        const consoleSpy = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: {
+            currentKid: "key-not-in-allowed-keys",
+            allowedKeys: {
+              "key-1": "secret-value-at-least-32-chars-long"
+            }
+          }
+        };
+
+        new Auth0Client(options);
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining("does not match any key")
+        );
+        consoleSpy.mockRestore();
+      });
+
+      it("should throw when currentKid equals the secret value (security check)", () => {
+        const options = {
+          domain: "options.auth0.com",
+          clientId: "options_client_id",
+          clientSecret: "options_client_secret",
+          appBaseUrl: "https://options-app.com",
+          secret: {
+            currentKid: "the-secret-itself-used-as-kid",
+            allowedKeys: {
+              "the-secret-itself-used-as-kid": "the-secret-itself-used-as-kid"
+            }
+          }
+        };
+
+        expect(() => new Auth0Client(options)).toThrow(
+          'You cannot use the same value for "currentKid" and a key'
+        );
+      });
+    });
   });
 
   // TODO: Re-implement DPoP handle management if needed

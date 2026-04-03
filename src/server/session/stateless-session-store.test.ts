@@ -858,4 +858,243 @@ describe("Stateless Session Store", async () => {
       ).resolves.not.toThrow();
     });
   });
+
+  describe("with object secret (key rotation)", async () => {
+    const currentSecret = await generateSecret(32);
+    const oldSecret = await generateSecret(32);
+
+    describe("get", async () => {
+      it("should decrypt session encrypted with object secret", async () => {
+        const objectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        const encryptedCookieValue = await encrypt(
+          session,
+          objectSecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        const sessionStore = new StatelessSessionStore({
+          secret: objectSecret
+        });
+
+        expect(await sessionStore.get(requestCookies)).toEqual(
+          expect.objectContaining(session)
+        );
+      });
+
+      it("should decrypt session encrypted with an old key (key rotation)", async () => {
+        const oldObjectSecret = {
+          currentKid: "key-1",
+          allowedKeys: {
+            "key-1": oldSecret
+          }
+        };
+
+        const newObjectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        // Encrypt with old key
+        const encryptedCookieValue = await encrypt(
+          session,
+          oldObjectSecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        // Use new configuration with both keys
+        const sessionStore = new StatelessSessionStore({
+          secret: newObjectSecret
+        });
+
+        expect(await sessionStore.get(requestCookies)).toEqual(
+          expect.objectContaining(session)
+        );
+      });
+
+      it("should return null when kid is not found in allowedKeys", async () => {
+        const unknownKeySecret = {
+          currentKid: "key-unknown",
+          allowedKeys: {
+            "key-unknown": await generateSecret(32)
+          }
+        };
+
+        const knownObjectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        // Encrypt with unknown key
+        const encryptedCookieValue = await encrypt(
+          session,
+          unknownKeySecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        // Use configuration that doesn't have the unknown key
+        const sessionStore = new StatelessSessionStore({
+          secret: knownObjectSecret
+        });
+
+        expect(await sessionStore.get(requestCookies)).toBeNull();
+      });
+
+      it("should decrypt session encrypted with string secret (fallback to current key)", async () => {
+        // Session encrypted with string secret (no kid)
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        // Encrypt with simple string secret (no kid in header)
+        const encryptedCookieValue = await encrypt(
+          session,
+          currentSecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        // Use object secret configuration
+        const objectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+        const sessionStore = new StatelessSessionStore({
+          secret: objectSecret
+        });
+
+        expect(await sessionStore.get(requestCookies)).toEqual(
+          expect.objectContaining(session)
+        );
+      });
+    });
+
+    describe("set", async () => {
+      it("should encrypt session with object secret", async () => {
+        const objectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const requestCookies = new RequestCookies(new Headers());
+        const responseCookies = new ResponseCookies(new Headers());
+
+        const sessionStore = new StatelessSessionStore({
+          secret: objectSecret,
+          rolling: false,
+          absoluteDuration: 3600
+        });
+        await sessionStore.set(requestCookies, responseCookies, session);
+
+        const cookie = responseCookies.get("__session");
+
+        expect(cookie).toBeDefined();
+        expect(
+          (
+            (await decrypt(
+              cookie!.value,
+              objectSecret
+            )) as jose.JWTDecryptResult
+          ).payload
+        ).toEqual(expect.objectContaining(session));
+      });
+    });
+  });
 });

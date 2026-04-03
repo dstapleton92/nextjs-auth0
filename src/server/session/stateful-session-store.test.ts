@@ -885,4 +885,229 @@ describe("Stateful Session Store", async () => {
       expect(store.delete).not.toHaveBeenCalled();
     });
   });
+
+  describe("with object secret (key rotation)", async () => {
+    const currentSecret = await generateSecret(32);
+    const oldSecret = await generateSecret(32);
+
+    describe("get", async () => {
+      it("should decrypt session ID encrypted with object secret", async () => {
+        const sessionId = "ses_123";
+        const objectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const store = {
+          get: vi.fn().mockResolvedValue(session),
+          set: vi.fn(),
+          delete: vi.fn()
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        const encryptedCookieValue = await encrypt(
+          { id: sessionId },
+          objectSecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        const sessionStore = new StatefulSessionStore({
+          secret: objectSecret,
+          store
+        });
+
+        const sessionFromDb = await sessionStore.get(requestCookies);
+        expect(store.get).toHaveBeenCalledOnce();
+        expect(store.get).toHaveBeenCalledWith(sessionId);
+        expect(sessionFromDb).toEqual(session);
+      });
+
+      it("should decrypt session ID encrypted with an old key (key rotation)", async () => {
+        const sessionId = "ses_123";
+        const oldObjectSecret = {
+          currentKid: "key-1",
+          allowedKeys: {
+            "key-1": oldSecret
+          }
+        };
+        const newObjectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const store = {
+          get: vi.fn().mockResolvedValue(session),
+          set: vi.fn(),
+          delete: vi.fn()
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        // Encrypt with old key
+        const encryptedCookieValue = await encrypt(
+          { id: sessionId },
+          oldObjectSecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        // Use new configuration with both keys
+        const sessionStore = new StatefulSessionStore({
+          secret: newObjectSecret,
+          store
+        });
+
+        const sessionFromDb = await sessionStore.get(requestCookies);
+        expect(store.get).toHaveBeenCalledOnce();
+        expect(store.get).toHaveBeenCalledWith(sessionId);
+        expect(sessionFromDb).toEqual(session);
+      });
+
+      it("should return null when kid is not found in allowedKeys", async () => {
+        const sessionId = "ses_123";
+        const unknownKeySecret = {
+          currentKid: "key-unknown",
+          allowedKeys: {
+            "key-unknown": await generateSecret(32)
+          }
+        };
+        const knownObjectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const store = {
+          get: vi.fn().mockResolvedValue(session),
+          set: vi.fn(),
+          delete: vi.fn()
+        };
+        const maxAge = 60 * 60;
+        const expiration = Math.floor(Date.now() / 1000 + maxAge);
+        // Encrypt with unknown key
+        const encryptedCookieValue = await encrypt(
+          { id: sessionId },
+          unknownKeySecret,
+          expiration
+        );
+
+        const headers = new Headers();
+        headers.append("cookie", `__session=${encryptedCookieValue}`);
+        const requestCookies = new RequestCookies(headers);
+
+        // Use configuration that doesn't have the unknown key
+        const sessionStore = new StatefulSessionStore({
+          secret: knownObjectSecret,
+          store
+        });
+
+        expect(await sessionStore.get(requestCookies)).toBeNull();
+      });
+    });
+
+    describe("set", async () => {
+      it("should encrypt session cookie with object secret", async () => {
+        const objectSecret = {
+          currentKid: "key-2",
+          allowedKeys: {
+            "key-1": oldSecret,
+            "key-2": currentSecret
+          }
+        };
+
+        const session: SessionData = {
+          user: { sub: "user_123" },
+          tokenSet: {
+            accessToken: "at_123",
+            refreshToken: "rt_123",
+            expiresAt: 123456
+          },
+          internal: {
+            sid: "auth0-sid",
+            createdAt: Math.floor(Date.now() / 1000)
+          }
+        };
+        const store = {
+          get: vi.fn().mockResolvedValue(session),
+          set: vi.fn(),
+          delete: vi.fn()
+        };
+        const requestCookies = new RequestCookies(new Headers());
+        const responseCookies = new ResponseCookies(new Headers());
+
+        const sessionStore = new StatefulSessionStore({
+          secret: objectSecret,
+          store,
+          rolling: false,
+          absoluteDuration: 3600
+        });
+        await sessionStore.set(requestCookies, responseCookies, session);
+
+        const cookie = responseCookies.get("__session");
+
+        expect(cookie).toBeDefined();
+        // Verify the cookie can be decrypted with the object secret
+        const decrypted = (await decrypt(
+          cookie!.value,
+          objectSecret
+        )) as jose.JWTDecryptResult;
+        // A new session ID is generated since no existing session cookie exists
+        expect(decrypted.payload).toHaveProperty("id");
+        expect(typeof decrypted.payload.id).toBe("string");
+        // Verify store.set was called with the generated session ID and session data
+        expect(store.set).toHaveBeenCalledOnce();
+        expect(store.set).toHaveBeenCalledWith(decrypted.payload.id, session);
+      });
+    });
+  });
 });
