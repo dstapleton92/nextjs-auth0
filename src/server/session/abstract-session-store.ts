@@ -74,13 +74,9 @@ export interface SessionConfiguration {
   cookie?: SessionCookieOptions;
 }
 
-export interface SessionSecret {
-  secret: string;
-  kid: string;
-}
 export interface SessionSecretConfig {
-  currentSecretKid: string;
-  allowedSecrets: Record<string, SessionSecret>;
+  currentKid: string;
+  allowedKeys: Record<string, string>;
 }
 
 export type SecretOption = string | SessionSecretConfig;

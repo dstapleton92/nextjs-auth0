@@ -1418,6 +1418,46 @@ export class Auth0Client {
       console.error(errorMessage.trim());
     }
 
+    const secret = requiredOptions.secret;
+    if (secret && typeof secret === "object") {
+      const { currentKid, allowedKeys } = secret;
+      const secretWarnings: string[] = [];
+
+      if (!currentKid) {
+        secretWarnings.push(
+          "'currentKid' is required to identify the active secret for signing"
+        );
+      }
+      if (
+        typeof allowedKeys !== "object" ||
+        Object.keys(allowedKeys).length === 0
+      ) {
+        secretWarnings.push(
+          "'allowedKeys' must be an object containing at least one valid secret"
+        );
+      }
+
+      const hasValidStructure = currentKid && typeof allowedKeys === "object";
+      if (hasValidStructure && !allowedKeys[currentKid]) {
+        secretWarnings.push(
+          `'currentKid' ("${currentKid}") does not match any key in 'allowedKeys'`
+        );
+      }
+
+      if (hasValidStructure && allowedKeys[currentKid] === currentKid) {
+        // This is critical; the kid can be read by anyone, so it must not be the secret value itself
+        throw new Error(
+          'You cannot use the same value for "currentKid" and a key. The kid is meant to be an identifier, not the secret itself.'
+        );
+      }
+
+      if (secretWarnings.length > 0) {
+        console.error(
+          `WARNING: Invalid secret configuration:\n  - ${secretWarnings.join("\n  - ")}`
+        );
+      }
+    }
+
     // Prepare the result object with all validated options
     const result = {
       ...requiredOptions,

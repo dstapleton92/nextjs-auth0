@@ -29,10 +29,8 @@ export async function encrypt(
   }
 ) {
   const secretInput =
-    typeof secret === "string"
-      ? secret
-      : secret.allowedSecrets[secret.currentSecretKid]?.secret;
-  const kid = typeof secret === "string" ? undefined : secret.currentSecretKid;
+    typeof secret === "string" ? secret : secret.allowedKeys[secret.currentKid];
+  const kid = typeof secret === "string" ? undefined : secret.currentKid;
   const encryptionKey = await createEncryptionKey(secretInput);
 
   const encryptedCookie = await new jose.EncryptJWT(payload)
@@ -63,15 +61,13 @@ export async function decrypt<T>(
           return createEncryptionKey(secret);
         } else if (!kid) {
           // If the current encrypted value has no kid, we fallback to using the current secret. This allows for a smooth rotation where the new encrypted cookies have a kid, but we can still read old cookies without a kid until they naturally expire.
-          return createEncryptionKey(
-            secret.allowedSecrets[secret.currentSecretKid].secret
-          );
+          return createEncryptionKey(secret.allowedKeys[secret.currentKid]);
         }
-        const foundSecret = secret.allowedSecrets?.[kid];
+        const foundSecret = secret.allowedKeys?.[kid];
         if (!foundSecret) {
           throw new Error(`Unable to find encryption key for kid: ${kid}`);
         }
-        return createEncryptionKey(foundSecret.secret);
+        return createEncryptionKey(foundSecret);
       },
       {
         ...options,
@@ -132,15 +128,13 @@ export async function verifySigned(
           return createSigningKey(secret);
         } else if (!kid) {
           // Fallback to current secret if no kid is present
-          return createSigningKey(
-            secret.allowedSecrets[secret.currentSecretKid].secret
-          );
+          return createSigningKey(secret.allowedKeys[secret.currentKid]);
         }
-        const foundSecret = secret.allowedSecrets?.[kid];
+        const foundSecret = secret.allowedKeys?.[kid];
         if (!foundSecret) {
           throw new Error(`Unable to find signing key for kid: ${kid}`);
         }
-        return createSigningKey(foundSecret.secret);
+        return createSigningKey(foundSecret);
       },
       {
         algorithms: ["HS256"]
@@ -164,10 +158,8 @@ export async function sign(
   const signingKey =
     typeof secret === "string"
       ? await createSigningKey(secret)
-      : await createSigningKey(
-          secret.allowedSecrets[secret.currentSecretKid].secret
-        );
-  const kid = typeof secret === "string" ? undefined : secret.currentSecretKid;
+      : await createSigningKey(secret.allowedKeys[secret.currentKid]);
+  const kid = typeof secret === "string" ? undefined : secret.currentKid;
   const { signature } = await new jose.FlattenedSign(
     new TextEncoder().encode(`${name}=${value}`)
   )
