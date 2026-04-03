@@ -1444,6 +1444,12 @@ export class Auth0Client {
         );
       }
 
+      if (secret.fallbackKid && !allowedKeys[secret.fallbackKid]) {
+        secretWarnings.push(
+          `'fallbackKid' ("${secret.fallbackKid}") does not match any key in 'allowedKeys'`
+        );
+      }
+
       if (secretWarnings.length > 0) {
         console.error(
           `WARNING: Invalid secret configuration:\n  - ${secretWarnings.join("\n  - ")}`
